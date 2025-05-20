@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Floor Plan Editor</title>
+<style>
+body { margin: 0; }
+.toolbar {
+    width: 240px;
+    background: #f4f4f4;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    border-radius: 15px;
+    height: 240px; /* Increase height slightly */
+    position: fixed;
+    right: 20px;
+    top: 55%; /* Move slightly downward */
+    transform: translateY(-55%); /* Adjust to balance positioning */
+    box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.1);
+    overflow-y: auto; /* Enable vertical scrolling */
+    overflow-x: hidden;
+}
+
+/* Scrollbar styling */
+.toolbar::-webkit-scrollbar {
+    width: 8px;
+}
+.toolbar::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+.toolbar::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+.toolbar::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+    
+    .toolbar h2 {
+        margin-bottom: 15px;
+    }
+    .toolbar input {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 10px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+    }
+    .toolbar button {
+        background: #ddd;
+        color: black;
+        border: none;
+        padding: 10px;
+        cursor: pointer;
+        width: 100%;
+        border-radius: 5px;
+    }
+    .toolbar button:hover {
+        background: #bbb;
+    }
+.furniture-toolbar {
+    position: fixed;
+    top: 50px;
+    left: 40px;
+    background: white;
+    height: 750px;
+    padding: 10px;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    max-height: calc(100vh - 40px); /* Limit height to viewport minus margins */
+    overflow-y: auto; /* Add vertical scrollbar when needed */
+    overflow-x: hidden; /* Hide horizontal scrollbar */
+}
+.furniture-item {
+    padding: 10px;
+    margin: 5px;
+    background: #f0f0f0;
+    border-radius: 3px;
+    cursor: move;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+#clear-furniture {
+    position: fixed;
+    bottom: 40px;
+    right: 30px;
+    padding: 10px 20px;
+    background-color: #f44336;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+.furniture-item img {
+    width: 30px;
+    height: 30px;
+    object-fit: cover;
+}
+#floorplan-input {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    padding: 10px;
+    background: white;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+/* Add scrollbar styling for better visibility */
+.furniture-toolbar::-webkit-scrollbar {
+    width: 8px;
+}
+.furniture-toolbar::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+.furniture-toolbar::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+.furniture-toolbar::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Color palette styles */
+.color-palette {
+    position: fixed;
+    bottom: 90px;
+    right: 30px;
+    background: white;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    z-index: 5000;
+    width: 200px; /* Reduce the width to half (adjust as needed) */
+    max-height: 150px; /* Set a max height */
+    overflow-y: auto; /* Enable vertical scrolling */
+    display: flex;
+    flex-direction: column; /* Ensure items are placed vertically */
+    align-items: center; /* Center items horizontally */
+}
+
+.color-option {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    margin: 5px;
+    cursor: pointer;
+    border: 2px solid transparent;
+}
+
+.color-option:hover {
+    transform: scale(1.1);
+}
+
+.color-option.selected {
+    border-color: #000;
+}
+</style>
+</head>
+<body>
+    <div class="text-removal-container">
+        <input id="floorplan-input" type="file" accept="image/*" style="display: none;">
+        <button id="select-image-btn" class="btn">Select Floor Plan</button>
+        <div id="processing-status"></div>
+        <canvas id="original-canvas" style="display: none;"></canvas>
+        <canvas id="processed-canvas" style="display: none;"></canvas>
+    </div>
+    
+    <script>
+        // Setup DOM elements
+        const fileInput = document.getElementById('floorplan-input');
+        const selectBtn = document.getElementById('select-image-btn');
+        const statusElement = document.getElementById('processing-status');
+        const originalCanvas = document.getElementById('original-canvas');
+        const processedCanvas = document.getElementById('processed-canvas');
+        
+        // Canvas contexts
+        const originalCtx = originalCanvas.getContext('2d');
+        const processedCtx = processedCanvas.getContext('2d');
+        
+        // Variable to track if processing is in progress
+        let isProcessing = false;
+        
+        // Click the button to trigger file input
+        selectBtn.addEventListener('click', () => {
+            if (isProcessing) {
+                statusElement.textContent = "Please wait, processing in progress...";
+                return;
+            }
+            fileInput.click();
+        });
+        
+        // Process image when selected
+        fileInput.addEventListener('change', function(e) {
+            // Prevent multiple processing
+            if (isProcessing) return;
+            
+            const file = e.target.files[0];
+            if (!file) {
+                statusElement.textContent = "";
+                return;
+            }
+            
+            // Set processing flag
+            isProcessing = true;
+            statusElement.textContent = "Processing image...";
+            
+            // Small delay to ensure UI updates
+            setTimeout(() => {
+                processSelectedImage(file);
+            }, 50);
+        });
+        
+        function processSelectedImage(file) {
+            try {
+                const reader = new FileReader();
+                
+                reader.onload = function(event) {
+                    const originalImage = new Image();
+                    
+                    originalImage.onload = function() {
+                        try {
+                            // Set canvas dimensions
+                            originalCanvas.width = originalImage.width;
+                            originalCanvas.height = originalImage.height;
+                            processedCanvas.width = originalImage.width;
+                            processedCanvas.height = originalImage.height;
+                            
+                            // Draw original image
+                            originalCtx.drawImage(originalImage, 0, 0);
+                            
+                            // Process the image to remove text
+                            removeTextFromFloorPlan();
+                            
+                            // Convert processed canvas to blob and create a new file
+                            processedCanvas.toBlob(function(blob) {
+                                try {
+                                    // Create a new File object from the blob
+                                    const processedFile = new File([blob], file.name, {
+                                        type: file.type,
+                                        lastModified: new Date().getTime()
+                                    });
+                                    
+                                    // Create a DataTransfer to update the file input
+                                    // This uses a more compatible approach
+                                    const dt = new DataTransfer();
+                                    dt.items.add(processedFile);
+                                    
+                                    // Store the original files to restore if needed
+                                    const originalFiles = fileInput.files;
+                                    
+                                    try {
+                                        // Update the file input with the processed file
+                                        fileInput.files = dt.files;
+                                        
+                                        // Manually trigger any event listeners on the file input
+                                        // This is more compatible than creating a synthetic event
+                                        if (typeof fileInput.onchange === 'function') {
+                                            fileInput.onchange();
+                                        }
+                                        
+                                        // Create a new change event
+                                        const event = new Event('change', { bubbles: true });
+                                        fileInput.dispatchEvent(event);
+                                        
+                                        statusElement.textContent = "Processing complete";
+                                        
+                                        // Clear status after a delay
+                                        setTimeout(() => {
+                                            if (statusElement.textContent === "Processing complete") {
+                                                statusElement.textContent = "";
+                                            }
+                                        }, 3000);
+                                    } catch (e) {
+                                        console.error("Error updating file input:", e);
+                                        // Restore original files if there was an error
+                                        fileInput.files = originalFiles;
+                                        statusElement.textContent = "Error: Unable to update processed image";
+                                    }
+                                } catch (e) {
+                                    console.error("Error creating File object:", e);
+                                    statusElement.textContent = "Error: File creation failed";
+                                }
+                                
+                                // Reset processing flag
+                                isProcessing = false;
+                            }, file.type);
+                        } catch (e) {
+                            console.error("Error during image processing:", e);
+                            statusElement.textContent = "Error: Image processing failed";
+                            isProcessing = false;
+                        }
+                    };
+                    
+                    originalImage.onerror = function() {
+                        console.error("Error loading image");
+                        statusElement.textContent = "Error: Failed to load image";
+                        isProcessing = false;
+                    };
+                    
+                    originalImage.src = event.target.result;
+                };
+                
+                reader.onerror = function() {
+                    console.error("Error reading file");
+                    statusElement.textContent = "Error: Failed to read file";
+                    isProcessing = false;
+                };
+                
+                reader.readAsDataURL(file);
+            } catch (e) {
+                console.error("Error in file processing:", e);
+                statusElement.textContent = "Error: " + e.message;
+                isProcessing = false;
+            }
+        }
+        
+        function removeTextFromFloorPlan() {
+            // Get image data from original canvas
+            const imageData = originalCtx.getImageData(0, 0, originalCanvas.width, originalCanvas.height);
+            const processedImageData = new ImageData(
+                new Uint8ClampedArray(imageData.data), 
+                imageData.width, 
+                imageData.height
+            );
+            
+            // Convert to grayscale for processing
+            const grayscaleData = convertToGrayscale(imageData);
+            
+            // Apply thresholding to get binary image
+            const binaryData = applyThreshold(grayscaleData, 150);
+            
+            // Find potential text regions through connected component analysis
+            const regions = findConnectedComponents(binaryData, imageData.width, imageData.height);
+            
+            // Filter regions that are likely to be text
+            const textRegions = regions.filter(region => {
+                const {x, y, width, height, area} = region;
+                
+                // Calculate aspect ratio
+                const aspectRatio = width / height;
+                
+                // Small areas with certain aspect ratios are likely text
+                return (
+                    area < 300 && 
+                    (aspectRatio > 0.1 && aspectRatio < 7) &&
+                    width < imageData.width / 5 && // Text is usually not very wide
+                    height < imageData.height / 10 // Text is usually not very tall
+                );
+            });
+            
+            // Replace text areas with white pixels
+            textRegions.forEach(region => {
+                const {x, y, width, height} = region;
+                
+                // Add a small margin around each region
+                const x1 = Math.max(0, x - 2);
+                const y1 = Math.max(0, y - 2);
+                const x2 = Math.min(imageData.width, x + width + 4);
+                const y2 = Math.min(imageData.height, y + height + 4);
+                
+                // Fill region with white
+                for (let j = y1; j < y2; j++) {
+                    for (let i = x1; i < x2; i++) {
+                        const index = (j * imageData.width + i) * 4;
+                        processedImageData.data[index] = 255;     // R
+                        processedImageData.data[index + 1] = 255; // G
+                        processedImageData.data[index + 2] = 255; // B
+                        // Keep alpha channel unchanged
+                    }
+                }
+            });
+            
+            // Put processed image data back to canvas
+            processedCtx.putImageData(processedImageData, 0, 0);
+        }
+        
+        function convertToGrayscale(imageData) {
+            const grayscaleData = new Uint8Array(imageData.width * imageData.height);
+            
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                const r = imageData.data[i];
+                const g = imageData.data[i + 1];
+                const b = imageData.data[i + 2];
+                
+                // Standard grayscale conversion formula
+                const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+                grayscaleData[i / 4] = gray;
+            }
+            
+            return grayscaleData;
+        }
+        
+        function applyThreshold(grayscaleData, threshold) {
+            const binaryData = new Uint8Array(grayscaleData.length);
+            
+            for (let i = 0; i < grayscaleData.length; i++) {
+                binaryData[i] = grayscaleData[i] < threshold ? 1 : 0;
+            }
+            
+            return binaryData;
+        }
+        
+        function findConnectedComponents(binaryData, width, height) {
+            const labels = new Int32Array(binaryData.length).fill(0);
+            let nextLabel = 1;
+            const equivalences = {};
+            
+            // First pass: assign initial labels
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const index = y * width + x;
+                    
+                    if (binaryData[index] === 1) {
+                        const neighbors = [];
+                        
+                        // Check west and north neighbors (if they exist)
+                        if (x > 0 && binaryData[index - 1] === 1) {
+                            neighbors.push(labels[index - 1]);
+                        }
+                        if (y > 0 && binaryData[index - width] === 1) {
+                            neighbors.push(labels[index - width]);
+                        }
+                        
+                        if (neighbors.length === 0) {
+                            labels[index] = nextLabel++;
+                        } else {
+                            const minLabel = Math.min(...neighbors.filter(l => l > 0));
+                            labels[index] = minLabel;
+                            
+                            // Record equivalences
+                            for (let i = 0; i < neighbors.length; i++) {
+                                if (neighbors[i] !== minLabel) {
+                                    if (!equivalences[neighbors[i]]) {
+                                        equivalences[neighbors[i]] = [];
+                                    }
+                                    if (!equivalences[minLabel]) {
+                                        equivalences[minLabel] = [];
+                                    }
+                                    
+                                    if (!equivalences[neighbors[i]].includes(minLabel)) {
+                                        equivalences[neighbors[i]].push(minLabel);
+                                    }
+                                    if (!equivalences[minLabel].includes(neighbors[i])) {
+                                        equivalences[minLabel].push(neighbors[i]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Compute final labels
+            const finalLabels = {};
+            for (let i = 1; i < nextLabel; i++) {
+                finalLabels[i] = i;
+            }
+            
+            // Resolve equivalences (with a safety limit to prevent infinite loops)
+            let changed = true;
+            let iterations = 0;
+            const MAX_ITERATIONS = 100;
+            
+            while (changed && iterations < MAX_ITERATIONS) {
+                changed = false;
+                iterations++;
+                
+                for (const label in equivalences) {
+                    const eqLabels = equivalences[label];
+                    const minEqLabel = Math.min(finalLabels[label], ...eqLabels.map(l => finalLabels[l]));
+                    
+                    if (finalLabels[label] !== minEqLabel) {
+                        finalLabels[label] = minEqLabel;
+                        changed = true;
+                    }
+                    
+                    for (const eqLabel of eqLabels) {
+                        if (finalLabels[eqLabel] !== minEqLabel) {
+                            finalLabels[eqLabel] = minEqLabel;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            
+            // Second pass: apply final labels
+            for (let i = 0; i < labels.length; i++) {
+                if (labels[i] > 0) {
+                    labels[i] = finalLabels[labels[i]];
+                }
+            }
+            
+            // Extract regions
+            const regions = {};
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const index = y * width + x;
+                    const label = labels[index];
+                    
+                    if (label > 0) {
+                        if (!regions[label]) {
+                            regions[label] = {
+                                minX: x,
+                                minY: y,
+                                maxX: x,
+                                maxY: y,
+                                area: 0
+                            };
+                        } else {
+                            regions[label].minX = Math.min(regions[label].minX, x);
+                            regions[label].minY = Math.min(regions[label].minY, y);
+                            regions[label].maxX = Math.max(regions[label].maxX, x);
+                            regions[label].maxY = Math.max(regions[label].maxY, y);
+                        }
+                        regions[label].area++;
+                    }
+                }
+            }
+            
+            // Convert to array of rectangles
+            return Object.values(regions).map(region => ({
+                x: region.minX,
+                y: region.minY,
+                width: region.maxX - region.minX + 1,
+                height: region.maxY - region.minY + 1,
+                area: region.area
+            }));
+        }
+    </script>
+<div id="canvas-container"></div>
+<button id="clear-furniture">Clear Furniture</button>
+
+<!-- Color Palette -->
+<div class="color-palette">
+    <h3>Wall Color</h3>
+    <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+        <div class="color-option" data-color="#F5F5DC" style="background-color: #F5F5DC"></div>
+        <div class="color-option" data-color="#FFF8DC" style="background-color: #FFF8DC"></div>
+        <div class="color-option" data-color="#FAEBD7" style="background-color: #FAEBD7"></div>
+        <div class="color-option" data-color="#FFE4C4" style="background-color: #FFE4C4"></div>
+        <div class="color-option" data-color="#FFDAB9" style="background-color: #FFDAB9"></div>
+        <div class="color-option" data-color="#FFE4B5" style="background-color: #FFE4B5"></div>
+        <div class="color-option" data-color="#F0E68C" style="background-color: #F0E68C"></div>
+        <div class="color-option" data-color="#EEE8AA" style="background-color: #EEE8AA"></div>
+        <div class="color-option" data-color="#BDB76B" style="background-color: #BDB76B"></div>
+        <div class="color-option" data-color="#F0FFF0" style="background-color: #F0FFF0"></div>
+        <div class="color-option" data-color="#F5FFFA" style="background-color: #F5FFFA"></div>
+        <div class="color-option" data-color="#F0FFFF" style="background-color: #F0FFFF"></div>
+        <div class="color-option" data-color="#F0F8FF" style="background-color: #F0F8FF"></div>
+        <div class="color-option" data-color="#E6E6FA" style="background-color: #E6E6FA"></div>
+    </div>
+</div>
+
+<div class="furniture-toolbar">
+    <div class="furniture-item" data-type="woodbed" draggable="true">
+        <img src="icons/woodbed.png" alt="Wood Bed">
+        <div>
+            <div>Wood Bed</div>
+            <div style="font-size: 12px; color: #666;">₹15,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="doublebed" draggable="true">
+        <img src="icons/doublebed.png" alt="Double Bed">
+        <div>
+            <div>Double Bed</div>
+            <div style="font-size: 12px; color: #666;">₹20,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="king_floorbed" draggable="true">
+        <img src="icons/king_floorbed.png" alt="King Floor Bed">
+        <div>
+            <div>King Floor Bed</div>
+            <div style="font-size: 12px; color: #666;">₹27,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="upholsteredbed" draggable="true">
+        <img src="icons/upholsteredbed.png" alt="Upholstered Bed">
+        <div>
+            <div>Upholstered Bed</div>
+            <div style="font-size: 12px; color: #666;">₹40,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="sofa" draggable="true">
+        <img src="icons/sofa.png" alt="Sofa">
+        <div>
+            <div>Sofa</div>
+            <div style="font-size: 12px; color: #666;">₹10,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="sofa1" draggable="true">
+        <img src="icons/sofa1.png" alt="Sofa 1">
+        <div>
+            <div>Corner sofa</div>
+            <div style="font-size: 12px; color: #666;">₹16,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="bench1" draggable="true">
+        <img src="icons/bench1.png" alt="Bench 1">
+        <div>
+            <div>Bench </div>
+            <div style="font-size: 12px; color: #666;">₹3,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="dining1" draggable="true">
+        <img src="icons/dining1.png" alt="Dining 1">
+        <div>
+            <div>Rustic Wooden dining set</div>
+            <div style="font-size: 12px; color: #666;">₹10,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="dining2" draggable="true">
+        <img src="icons/dining2.png" alt="Dining 2">
+        <div>
+            <div>Vintage cafe Dinning set</div>
+            <div style="font-size: 12px; color: #666;">₹17,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="dining3" draggable="true">
+        <img src="icons/dining3.png" alt="Dining 3">
+        <div>
+            <div>Modern Wooden Dining Set</div>
+            <div style="font-size: 12px; color: #666;">₹25,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="table1" draggable="true">
+        <img src="icons/table1.png" alt="Table 1">
+        <div>
+            <div>Wooden Table</div>
+            <div style="font-size: 12px; color: #666;">₹7,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="table2" draggable="true">
+        <img src="icons/table2.png" alt="Table 2">
+        <div>
+            <div>EchoDine Set</div>
+            <div style="font-size: 12px; color: #666;">₹5,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="wardrobe1" draggable="true">
+        <img src="icons/wardrobe1.png" alt="Wardrobe 1">
+        <div>
+            <div>Wardrobe </div>
+            <div style="font-size: 12px; color: #666;">₹15,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="furniture1" draggable="true">
+        <img src="icons/furniture1.png" alt="Furniture 1">
+        <div>
+            <div>Dressing Table</div>
+            <div style="font-size: 12px; color: #666;">₹9,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="furniture2" draggable="true">
+        <img src="icons/furniture2.png" alt="Furniture 2">
+        <div>
+            <div>Recliner Sofa</div>
+            <div style="font-size: 12px; color: #666;">₹8,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="furniture3" draggable="true">
+        <img src="icons/furniture3.png" alt="Furniture 3">
+        <div>
+            <div>Couch</div>
+            <div style="font-size: 12px; color: #666;">₹6,000</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="furniture4" draggable="true">
+        <img src="icons/furniture4.png" alt="Furniture 4">
+        <div>
+            <div>Armchair</div>
+            <div style="font-size: 12px; color: #666;">₹8,500</div>
+        </div>
+    </div>
+    <div class="furniture-item" data-type="furniture5" draggable="true">
+        <img src="icons/furniture5.png" alt="Furniture 5">
+        <div>
+            <div>Wooden Desk</div>
+            <div style="font-size: 12px; color: #666;">₹9,000</div>
+        </div>
+    </div>
+</div>
+<div class="toolbar">
+    <h2>Recommendation</h2>
+    <input type="number" id="budgetInput" placeholder="Enter your budget">
+    <button id="suggestButton">Suggest</button>
+    <div id="recommendation-results"></div>
+</div>
+
+<script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
+            "three/examples/jsm/controls/OrbitControls": "https://unpkg.com/three@0.157.0/examples/jsm/controls/OrbitControls.js",
+            "three/examples/jsm/loaders/GLTFLoader": "https://unpkg.com/three@0.157.0/examples/jsm/loaders/GLTFLoader.js",
+            "three/examples/jsm/controls/PointerLockControls": "https://unpkg.com/three@0.157.0/examples/jsm/controls/PointerLockControls.js"
+        }
+    }
+</script>
+<script type="module" src="main.js"></script>
+<script src="recommend.js"></script>
+</body>
+</html>
